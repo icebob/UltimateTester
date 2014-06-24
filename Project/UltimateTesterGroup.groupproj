@@ -1,0 +1,72 @@
+﻿	<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+		<PropertyGroup>
+			<ProjectGuid>{D7B3CE30-9EEC-4957-AC2F-3200F15A7572}</ProjectGuid>
+		</PropertyGroup>
+		<ItemGroup>
+			<Projects Include="..\Source\UltimateTester.dproj">
+				<Dependencies/>
+			</Projects>
+			<Projects Include="..\Modules\HTTPGetTest\HTTPGetTest.dproj">
+				<Dependencies/>
+			</Projects>
+			<Projects Include="..\Modules\HTTPPostTest\HTTPPostTest.dproj">
+				<Dependencies/>
+			</Projects>
+			<Projects Include="..\..\___IPMic___\IPMicTestModule\Source\IPMicTestModule.dproj">
+				<Dependencies/>
+			</Projects>
+		</ItemGroup>
+		<ProjectExtensions>
+			<Borland.Personality>Default.Personality.12</Borland.Personality>
+			<Borland.ProjectType/>
+			<BorlandProject>
+				<Default.Personality/>
+			</BorlandProject>
+		</ProjectExtensions>
+		<Target Name="UltimateTester">
+			<MSBuild Projects="..\Source\UltimateTester.dproj"/>
+		</Target>
+		<Target Name="UltimateTester:Clean">
+			<MSBuild Projects="..\Source\UltimateTester.dproj" Targets="Clean"/>
+		</Target>
+		<Target Name="UltimateTester:Make">
+			<MSBuild Projects="..\Source\UltimateTester.dproj" Targets="Make"/>
+		</Target>
+		<Target Name="HTTPGetTest">
+			<MSBuild Projects="..\Modules\HTTPGetTest\HTTPGetTest.dproj"/>
+		</Target>
+		<Target Name="HTTPGetTest:Clean">
+			<MSBuild Projects="..\Modules\HTTPGetTest\HTTPGetTest.dproj" Targets="Clean"/>
+		</Target>
+		<Target Name="HTTPGetTest:Make">
+			<MSBuild Projects="..\Modules\HTTPGetTest\HTTPGetTest.dproj" Targets="Make"/>
+		</Target>
+		<Target Name="HTTPPostTest">
+			<MSBuild Projects="..\Modules\HTTPPostTest\HTTPPostTest.dproj"/>
+		</Target>
+		<Target Name="HTTPPostTest:Clean">
+			<MSBuild Projects="..\Modules\HTTPPostTest\HTTPPostTest.dproj" Targets="Clean"/>
+		</Target>
+		<Target Name="HTTPPostTest:Make">
+			<MSBuild Projects="..\Modules\HTTPPostTest\HTTPPostTest.dproj" Targets="Make"/>
+		</Target>
+		<Target Name="IPMicTestModule">
+			<MSBuild Projects="..\..\___IPMic___\IPMicTestModule\Source\IPMicTestModule.dproj"/>
+		</Target>
+		<Target Name="IPMicTestModule:Clean">
+			<MSBuild Projects="..\..\___IPMic___\IPMicTestModule\Source\IPMicTestModule.dproj" Targets="Clean"/>
+		</Target>
+		<Target Name="IPMicTestModule:Make">
+			<MSBuild Projects="..\..\___IPMic___\IPMicTestModule\Source\IPMicTestModule.dproj" Targets="Make"/>
+		</Target>
+		<Target Name="Build">
+			<CallTarget Targets="UltimateTester;HTTPGetTest;HTTPPostTest;IPMicTestModule"/>
+		</Target>
+		<Target Name="Clean">
+			<CallTarget Targets="UltimateTester:Clean;HTTPGetTest:Clean;HTTPPostTest:Clean;IPMicTestModule:Clean"/>
+		</Target>
+		<Target Name="Make">
+			<CallTarget Targets="UltimateTester:Make;HTTPGetTest:Make;HTTPPostTest:Make;IPMicTestModule:Make"/>
+		</Target>
+		<Import Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')" Project="$(BDS)\Bin\CodeGear.Group.Targets"/>
+	</Project>
