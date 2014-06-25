@@ -381,6 +381,7 @@ var
   I: integer;
   InstanceID, Cnt: integer;
 begin
+  ModuleForm.eInstanceNumber.Text       := IntToStr(Runner.GetMaxInstanceID + 1);
 
   Node := VList.GetFirstSelected;
   if Assigned(Node) then
@@ -388,10 +389,15 @@ begin
     module := Runner.GetModuleByIndex(Node.Index);
     if Assigned(module) then
     begin
-      ModuleForm.eProgramName.Text := module.ProgramName;
-      ModuleForm.eParameters.Text := module.OrigParameters;
-      ModuleForm.eInstanceNumber.Text := IntToStr(Runner.GetMaxInstanceID + 1);
-      ModuleForm.cbAddInstanceID.Checked := module.AddInstanceIDToParameters;
+      ModuleForm.eProgramName.Text          := module.ProgramName;
+      ModuleForm.eParameters.Text           := module.OrigParameters;
+      ModuleForm.cbAddInstanceID.Checked    := module.AddInstanceIDToParameters;
+
+      ModuleForm.cbProcessResponse.Checked  := module.UseResponseFilter;
+      ModuleForm.eRegexpFilter.Text         := module.ResponseRegexpFilter;
+
+      ModuleForm.cbAutoRestart.Checked      := module.UseAutoRestart;
+      ModuleForm.eRestartTimer.Text         := module.AutoRestartTime;
     end;
   end;
 
@@ -405,9 +411,17 @@ begin
 
     for I := 1 to Cnt do
     begin
-      Runner.AddModule(ModuleForm.eProgramName.Text, ModuleForm.eParameters.Text, InstanceID, ModuleForm.cbAddInstanceID.Checked);
+      module := Runner.AddModule(ModuleForm.eProgramName.Text, ModuleForm.eParameters.Text, InstanceID, ModuleForm.cbAddInstanceID.Checked);
+
+      module.UseResponseFilter          := ModuleForm.cbProcessResponse.Checked;
+      module.ResponseRegexpFilter       := ModuleForm.eRegexpFilter.Text;
+
+      module.UseAutoRestart             := ModuleForm.cbAutoRestart.Checked;
+      module.AutoRestartTime            := ModuleForm.eRestartTimer.Text;
+
       Inc(InstanceID, 1);
     end;
+    Runner.SaveToProjectFile;
 
     Runner.DoChanged;
   end;
@@ -469,12 +483,10 @@ procedure TMainForm.aEditExecute(Sender: TObject);
 //------------------------------------------------------------------------------
 var
   Node: PVirtualNode;
-  module: TModuleUnit;
-
-  programName, parameters: string;
+  baseModule, module: TModuleUnit;
   cnt: integer;
 begin
-  programName := ''; parameters := ''; cnt := 0;
+  cnt := 0;
 
   Node := VList.GetFirstSelected();
   while Assigned(Node) do
@@ -483,14 +495,12 @@ begin
 
     if Assigned(module) then
     begin
-      if programName = '' then
-        programName := module.ProgramName;
-      if parameters = '' then
-        parameters := module.OrigParameters;
       Inc(cnt);
 
-      module.Stop;
+      if (not Assigned(baseModule))then
+        baseModule := module;
     end;
+
 
     Node := VList.GetNextSelected(Node);
   end;
@@ -500,12 +510,18 @@ begin
     ModuleForm.EditMode := true;
     ModuleForm.MultiEdit := cnt > 1;
 
-    ModuleForm.eProgramName.Text := programName;
-    ModuleForm.eParameters.Text := parameters;
-    if Assigned(module) then
-      ModuleForm.cbAddInstanceID.Checked := module.AddInstanceIDToParameters
-    else
-      ModuleForm.cbAddInstanceID.Checked := true;
+    if Assigned(baseModule) then
+    begin
+      ModuleForm.eProgramName.Text          := module.ProgramName;
+      ModuleForm.eParameters.Text           := module.OrigParameters;
+      ModuleForm.cbAddInstanceID.Checked    := module.AddInstanceIDToParameters;
+
+      ModuleForm.cbProcessResponse.Checked  := module.UseResponseFilter;
+      ModuleForm.eRegexpFilter.Text         := module.ResponseRegexpFilter;
+
+      ModuleForm.cbAutoRestart.Checked      := module.UseAutoRestart;
+      ModuleForm.eRestartTimer.Text         := module.AutoRestartTime;
+    end;
 
     if cnt = 1 then
       ModuleForm.eInstanceNumber.Text := IntToStr(module.InstanceID);
@@ -520,11 +536,20 @@ begin
 
         if Assigned(module) then
         begin
-          module.ProgramName := ModuleForm.eProgramName.Text;
+          module.Stop;
+
           if cnt = 1 then
-            module.InstanceID := StrToIntDef(ModuleForm.eInstanceNumber.Text, 1);
-          module.Parameters := ModuleForm.eParameters.Text;
-          module.AddInstanceIDToParameters := ModuleForm.cbAddInstanceID.Checked;
+            module.InstanceID               := StrToIntDef(ModuleForm.eInstanceNumber.Text, 1);
+
+          module.ProgramName                := ModuleForm.eProgramName.Text;
+          module.Parameters                 := ModuleForm.eParameters.Text;
+          module.AddInstanceIDToParameters  := ModuleForm.cbAddInstanceID.Checked;
+
+          module.UseResponseFilter          := ModuleForm.cbProcessResponse.Checked;
+          module.ResponseRegexpFilter       := ModuleForm.eRegexpFilter.Text;
+
+          module.UseAutoRestart             := ModuleForm.cbAutoRestart.Checked;
+          module.AutoRestartTime            := ModuleForm.eRestartTimer.Text;
         end;
 
         Node := VList.GetNextSelected(Node);
@@ -576,9 +601,14 @@ begin
     if Column = 0 then
     begin
       if module.Running then
-        ImageIndex := 1
+      begin
+        if module.IsWaiting then
+          ImageIndex := 3
+        else
+          ImageIndex := 1;
+      end
       else
-        ImageIndex := 0;
+        ImageIndex := 5;
     end;
   end;
 end;
@@ -590,6 +620,8 @@ procedure TMainForm.VListGetText(Sender: TBaseVirtualTree; Node: PVirtualNode;
 var
   module: TModuleUnit;
 begin
+  CellText := '';
+
   module := Runner.GetModuleByIndex(Node.Index);
   if Assigned(module) then
   begin
@@ -597,16 +629,19 @@ begin
       0: CellText := ExtractFileName(module.ProgramName);
       1: CellText := IntToStr(module.InstanceID);
       2: CellText := module.Parameters;
-      3: CellText := IfThen(module.Running, 'Running', '');
+      3: CellText := module.ModuleState;
       4: CellText := module.Status;
-      5: CellText := IntToStr(module.RunCount);
+      5: if module.RunCount > 0 then CellText := IntToStr(module.RunCount);
       6: begin
-        if module.RunLastTime > 1000 then
-          CellText := FormatFloat('0.####', module.RunLastTime / 1000.0) + ' sec'
-        else
-          CellText := Format('%d msec', [module.RunLastTime]);
+        if module.RunLastTime > 0 then
+        begin
+          if module.RunLastTime > 1000 then
+            CellText := FormatFloat('0.####', module.RunLastTime / 1000.0) + ' sec'
+          else
+            CellText := Format('%d msec', [module.RunLastTime]);
+        end;
       end;
-      7: CellText := IntToStr(module.RunScore);
+      7: if module.RunScore > 0 then CellText := IntToStr(module.RunScore);
     end;
   end;
 end;

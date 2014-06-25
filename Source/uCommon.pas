@@ -14,6 +14,8 @@ function CutAt(var xStr: AnsiString; xSub: AnsiString; const IgnoreCase: boolean
 
 function GetFiles(path, mask: string; SubDirs: Boolean): TStrings;
 
+function StrPos(const Str, SubStr: string; const bCaseSensitive: boolean = true): integer;
+
 implementation
 
 function CutAt(var xStr: string; xSub: string; const IgnoreCase: boolean = false): string;
@@ -121,6 +123,14 @@ function GetFiles(path, mask: string; SubDirs: Boolean): TStrings;
 begin
   Result := Tstringlist.Create;
   FindRecursive(path, mask, Result);
+end;
+
+function StrPos(const Str, SubStr: string; const bCaseSensitive: boolean = true): integer;
+begin
+  if bCaseSensitive then
+    result := Pos(LowerCase(SubStr), LowerCase(Str))
+  else
+    result := Pos(SubStr, Str);
 end;
 
 

@@ -20,13 +20,25 @@ type
     eInstanceCount: TLabeledEdit;
     GroupBox1: TGroupBox;
     ParameterList: TValueListEditor;
+    GroupBox2: TGroupBox;
     cbAddInstanceID: TCheckBox;
+    GroupBox3: TGroupBox;
+    cbProcessResponse: TCheckBox;
+    eRegexpFilter: TEdit;
+    Label1: TLabel;
+    cbAutoRestart: TCheckBox;
+    eRestartTimer: TEdit;
+    Label3: TLabel;
+    Label4: TLabel;
+    Label5: TLabel;
     procedure bOKClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure FormShow(Sender: TObject);
     procedure bSearchClick(Sender: TObject);
     procedure eParametersChange(Sender: TObject);
     procedure ParameterListStringsChange(Sender: TObject);
+    procedure cbProcessResponseClick(Sender: TObject);
+    procedure cbAutoRestartClick(Sender: TObject);
   private
     FMultiEdit: boolean;
     FEditMode: boolean;
@@ -34,6 +46,7 @@ type
     procedure SetMultiEdit(const Value: boolean);
     procedure LoadParameterList(Params: string);
     function GetParametersFromParamList: string;
+    procedure SetFields;
     { Private declarations }
   public
     { Public declarations }
@@ -74,6 +87,22 @@ begin
     else
       eProgramName.Text := OD.FileName;
   end;
+end;
+
+procedure TModuleForm.cbAutoRestartClick(Sender: TObject);
+begin
+  SetFields;
+end;
+
+procedure TModuleForm.cbProcessResponseClick(Sender: TObject);
+begin
+  SetFields;
+end;
+
+procedure TModuleForm.SetFields;
+begin
+  eRegexpFilter.Enabled := cbProcessResponse.Checked;
+  eRestartTimer.Enabled := cbAutoRestart.Checked;
 end;
 
 procedure TModuleForm.eParametersChange(Sender: TObject);
@@ -177,6 +206,8 @@ procedure TModuleForm.FormShow(Sender: TObject);
 begin
   eInstanceCount.Enabled := not EditMode;
   eInstanceNumber.Enabled := not MultiEdit;
+
+  SetFields;
 end;
 
 procedure TModuleForm.LoadModules;

@@ -4,11 +4,12 @@ interface
 
 uses
   SysUtils, Windows, Classes, IceXML, Generics.Collections,
-  JCLSysUtils, SyncObjs;
+  JCLSysUtils, SyncObjs, ExtCtrls;
 
 type
   TModuleUnit = class(TObject)
   private
+    FRestartTimer: TTimer;
     FRunning: boolean;
     FProgramName: string;
     FInstanceID: integer;
@@ -21,22 +22,40 @@ type
     FRunStatus: integer;
     FRunLastTime: integer;
     FAddInstanceIDToParameters: boolean;
+    FResponseRegexpFilter: string;
+    FUseAutoRestart: boolean;
+    FAutoRestartTime: string;
+    FUseResponseFilter: boolean;
     procedure SetRunning(const Value: boolean);
     procedure SetInstanceID(const Value: integer);
     procedure SetParameters(const Value: string);
     procedure SetProgramName(const Value: string);
     procedure SetOrigParameters(const Value: string);
     procedure SetStatus(const Value: string);
-    procedure RunCmd(cmd, parameters: string);
-    procedure OutputHandler(const Text: string);
-    procedure ProcessConsoleMessages(Data: AnsiString);
     procedure SetRunCount(const Value: integer);
     procedure SetRunLastTime(const Value: integer);
     procedure SetRunScore(const Value: integer);
     procedure SetRunStatus(const Value: integer);
     procedure SetAddInstanceIDToParameters(const Value: boolean);
+    procedure SetAutoRestartTime(const Value: string);
+    procedure SetResponseRegexpFilter(const Value: string);
+    procedure SetUseAutoRestart(const Value: boolean);
+    procedure SetUseResponseFilter(const Value: boolean);
+    procedure BeginAutoRestart;
+    procedure FRestartTimerTick(Sender: TObject);
+    function GetModuleState: string;
+    function GetIsWaiting: boolean;
   protected
+    FAutoRestartMinTime: integer;
+    FAutoRestartMaxTime: integer;
+
+    procedure RunCmd(cmd, parameters: string);
+    procedure OutputHandler(const Text: string);
+    procedure ProcessConsoleMessages(Data: AnsiString);
+
     function GetParameters: string;
+    procedure InnerStart;
+    procedure AddMessage(const Value: string);
   public
     constructor Create;
     destructor Destroy; override;
@@ -50,6 +69,8 @@ type
     procedure SaveToXML(Item: TXMLItem);
 
     property Status: string read FStatus write SetStatus;
+    property ModuleState: string read GetModuleState;
+    property IsWaiting: boolean read GetIsWaiting;
 
     property Running: boolean read FRunning write SetRunning;
     property ProgramName: string read FProgramName write SetProgramName;
@@ -57,6 +78,12 @@ type
     property Parameters: string read FParameters write SetParameters;
     property InstanceID: integer read FInstanceID write SetInstanceID;
     property AddInstanceIDToParameters: boolean read FAddInstanceIDToParameters write SetAddInstanceIDToParameters;
+
+    property UseResponseFilter: boolean read FUseResponseFilter write SetUseResponseFilter;
+    property ResponseRegexpFilter: string read FResponseRegexpFilter write SetResponseRegexpFilter;
+
+    property UseAutoRestart: boolean read FUseAutoRestart write SetUseAutoRestart;
+    property AutoRestartTime: string read FAutoRestartTime write SetAutoRestartTime;
 
     property RunStatus: integer read FRunStatus write SetRunStatus;
     property RunCount: integer read FRunCount write SetRunCount;
@@ -118,7 +145,7 @@ var
 implementation
 
 uses
-  Forms, Dialogs, Math, ShellAPI, StrUtils, uCommon;
+  Forms, Dialogs, Math, ShellAPI, StrUtils, uCommon, RegularExpressions;
 
 { TModuleUnit }
 
@@ -126,6 +153,12 @@ uses
 constructor TModuleUnit.Create;
 //------------------------------------------------------------------------------
 begin
+  FRestartTimer := TTimer.Create(nil);
+  with FRestartTimer do
+  begin
+    Enabled := False;
+    OnTimer := FRestartTimerTick;
+  end;
   FRunning := false;
   FProgramName := '';
   FInstanceID := 0;
@@ -133,6 +166,13 @@ begin
   FParameters := '';
   FStatus := '';
   FConsoleBuffer := '';
+
+  FUseResponseFilter := false;
+  FResponseRegexpFilter := '';
+  FUseAutoRestart := false;
+  FAutoRestartTime := '5';
+  FAutoRestartMinTime := 5;
+  FAutoRestartMinTime := 5;
 end;
 
 //------------------------------------------------------------------------------
@@ -144,6 +184,12 @@ begin
   result.InstanceID                 := Item.GetParamAsInt('instance', 0);
   result.Parameters                 := Item.Attr['parameters'];
   result.AddInstanceIDToParameters  := Item.GetParamAsInt('addinstancetoparam', 0) = 1;
+
+  result.UseResponseFilter          := Item.GetParamAsInt('useresponsefilter', 0) = 1;
+  result.ResponseRegexpFilter       := Item.Attr['responseregexp'];
+
+  result.UseAutoRestart             := Item.GetParamAsInt('useautorestart', 0) = 1;
+  result.AutoRestartTime            := Item.Attr['autorestarttime'];
 end;
 
 //------------------------------------------------------------------------------
@@ -152,6 +198,8 @@ destructor TModuleUnit.Destroy;
 begin
   if Running then
     Stop;
+
+  FreeAndNil(FRestartTimer);
 
   inherited;
 end;
@@ -164,11 +212,34 @@ begin
   Item.Attr['parameters']         := FOrigParameters;
   Item.Attr['instance']           := FInstanceID;
   Item.Attr['addinstancetoparam'] := integer(FAddInstanceIDToParameters);
+
+  Item.Attr['useresponsefilter']  := integer(FUseResponseFilter);
+  Item.Attr['responseregexp']     := FResponseRegexpFilter;
+
+  Item.Attr['useautorestart']     := integer(FUseAutoRestart);
+  Item.Attr['autorestarttime']    := FAutoRestartTime;
 end;
 
 procedure TModuleUnit.SetAddInstanceIDToParameters(const Value: boolean);
 begin
   FAddInstanceIDToParameters := Value;
+end;
+
+procedure TModuleUnit.SetAutoRestartTime(const Value: string);
+var
+  time: string;
+begin
+  FAutoRestartTime := Value;
+
+  time := Value;
+  if StrPos(time, '-') > 0 then
+  begin
+    FAutoRestartMinTime := StrToIntDef(CutAt(time, '-'), 10) * 1000;
+    FAutoRestartMaxTime := StrToIntDef(time, 0) * 1000;
+    Randomize;
+  end
+  else
+    FAutoRestartMinTime := StrToIntDef(time, 10) * 1000;
 end;
 
 procedure TModuleUnit.SetInstanceID(const Value: integer);
@@ -193,6 +264,11 @@ end;
 procedure TModuleUnit.SetProgramName(const Value: string);
 begin
   FProgramName := Value;
+end;
+
+procedure TModuleUnit.SetResponseRegexpFilter(const Value: string);
+begin
+  FResponseRegexpFilter := Value;
 end;
 
 procedure TModuleUnit.SetRunCount(const Value: integer);
@@ -230,12 +306,28 @@ procedure TModuleUnit.SetStatus(const Value: string);
 //------------------------------------------------------------------------------
 begin
   FStatus := Value;
+  AddMessage(Value);
+end;
 
+//------------------------------------------------------------------------------
+procedure TModuleUnit.AddMessage(const Value: string);
+//------------------------------------------------------------------------------
+begin
   if Assigned(Runner) then
   begin
     Runner.AddMessage(Self, Value);
     Runner.DoChanged(Self);
   end;
+end;
+
+procedure TModuleUnit.SetUseAutoRestart(const Value: boolean);
+begin
+  FUseAutoRestart := Value;
+end;
+
+procedure TModuleUnit.SetUseResponseFilter(const Value: boolean);
+begin
+  FUseResponseFilter := Value;
 end;
 
 //------------------------------------------------------------------------------
@@ -245,19 +337,48 @@ var
   thr: TThread;
 
 begin
-  Status := 'Starting module...';
+  if Running then Exit;
 
+  Status := 'Starting module...';
   SetRunning(true);
 
+  InnerStart;
+end;
+
+//------------------------------------------------------------------------------
+procedure TModuleUnit.InnerStart;
+//------------------------------------------------------------------------------
+var
+  thr: TThread;
+begin
+  Inc(FRunCount);
   thr := TThread.CreateAnonymousThread( procedure()
   begin
     RunCmd(ProgramName, GetParameters);
   end);
   thr.Start;
-
 end;
 
+
 //------------------------------------------------------------------------------
+function TModuleUnit.GetIsWaiting: boolean;
+begin
+  result := FRestartTimer.Enabled;
+end;
+
+function TModuleUnit.GetModuleState: string;
+begin
+  if Running then
+  begin
+    if IsWaiting then
+      result := 'Waiting'
+    else
+      result := 'Running';
+  end
+  else
+    result := '';
+end;
+
 function TModuleUnit.GetParameters: string;
 //------------------------------------------------------------------------------
 begin
@@ -274,19 +395,15 @@ begin
 end;
 
 //------------------------------------------------------------------------------
-procedure TModuleUnit.OutputHandler(const Text: string);
-//------------------------------------------------------------------------------
-begin
-  Status := Text;
-end;
-
-//------------------------------------------------------------------------------
 procedure TModuleUnit.Stop;
 //------------------------------------------------------------------------------
 begin
-  Status := 'Stopping module...';
+  if not Running then Exit;
 
+  FRestartTimer.Enabled := false;
   SetRunning(false);
+
+  AddMessage('Module stopped.');
   Status := '';
 end;
 
@@ -295,6 +412,7 @@ procedure TModuleUnit.ProcessConsoleMessages(Data: AnsiString);
 //------------------------------------------------------------------------------
 var
   Line: AnsiString;
+  c: integer;
 begin
   FConsoleBuffer := FConsoleBuffer + Data;
 
@@ -307,7 +425,10 @@ begin
       CutAt(Line, '$$ ');
       Line := Trim(Line);
       FRunStatus    := StrToIntDef(CutAt(Line, ' '), 0);
-      FRunCount     := StrToIntDef(CutAt(Line, ' '), 0);
+
+      c := StrToIntDef(CutAt(Line, ' '), -1);
+      if c <> -1 then FRunCount     := c;
+
       FRunLastTime  := StrToIntDef(CutAt(Line, ' '), 0);
       FRunScore     := StrToIntDef(CutAt(Line, ' '), 0);
 
@@ -316,8 +437,42 @@ begin
 
     end
     else
-      Status := string(Line);
+      OutputHandler(string(Line));
   end;
+end;
+
+//------------------------------------------------------------------------------
+procedure TModuleUnit.OutputHandler(const Text: string);
+//------------------------------------------------------------------------------
+var
+  re: TRegEx;
+  match: TMatch;
+  I: Integer;
+begin
+  if UseResponseFilter and (ResponseRegexpFilter <> '') then
+  begin
+    re := TRegEx.Create(ResponseRegexpFilter, [roSingleLine]);
+    match := re.Match(Text);
+
+    while match.Success do
+    begin
+      if match.Groups.Count > 1 then
+      begin
+        for I := 1 to match.Groups.Count - 1 do
+        begin
+          Status := match.Groups[I].Value;
+        end;
+      end
+      else
+        Status := match.Value;
+
+      match := match.NextMatch;
+    end;
+
+
+  end
+  else
+    Status := Text;
 end;
 
 //------------------------------------------------------------------------------
@@ -330,7 +485,7 @@ var
   ReadPipe,WritePipe  : THandle;
   start               : TStartUpInfo;
   ProcessInfo         : TProcessInformation;
-  Buffer              : PAnsichar;
+  Buffer, B2              : PAnsichar;
   BytesRead           : DWORD;
   Apprunning,
   BytesLeftThisMessage,
@@ -388,6 +543,7 @@ begin
               if BytesRead > 0 then
               begin
                 Buffer[BytesRead]:= #0;
+                OemToCharA(Buffer, Buffer);
                 ProcessConsoleMessages(Buffer);
               end;
             end;
@@ -408,11 +564,17 @@ begin
               if exitStartTime = 0 then
                 exitStartTime := GetTickCount()
               else
-                // 5 másodpercet várunk, miután kilépett az app. Eddig még kiolvassuk a pipe-ból a messageeket, aztán leállítjuk a szálat.
-                if (GetTickCount - exitStartTime) > 5 * 1000 then
+                // 2 másodpercet várunk, miután kilépett az app. Eddig még kiolvassuk a pipe-ból a messageeket, aztán leállítjuk a szálat.
+                if (GetTickCount - exitStartTime) > 2 * 1000 then
                 begin
                   GetExitCodeProcess(ProcessInfo.hProcess, ExitCode);
-                  Status := Format('---- Application exited (code: %d)', [ExitCode]);
+                  AddMessage(Format('---- Application exited (code: %d)', [ExitCode]));
+
+                  if UseAutoRestart then
+                  begin
+                    BeginAutoRestart;
+                    break;
+                  end;
 
                   Stop;
                 end;
@@ -440,6 +602,31 @@ begin
       CloseHandle(WritePipe);
     end;
   end;
+end;
+
+//------------------------------------------------------------------------------
+procedure TModuleUnit.BeginAutoRestart;
+//------------------------------------------------------------------------------
+begin
+  with FRestartTimer do
+  begin
+    if FAutoRestartMaxTime = 0 then
+      Interval := FAutoRestartMinTime
+    else
+      Interval := FAutoRestartMinTime + Random(FAutoRestartMaxTime - FAutoRestartMinTime);
+
+    Enabled := true;
+    AddMessage(Format('Waiting %d ms for restart...', [Interval]));
+  end;
+end;
+
+//------------------------------------------------------------------------------
+procedure TModuleUnit.FRestartTimerTick(Sender: TObject);
+//------------------------------------------------------------------------------
+begin
+  FRestartTimer.Enabled := false;
+  AddMessage('Restarting module...');
+  InnerStart;
 end;
 
 { TRunner }
@@ -475,8 +662,6 @@ begin
   result.Parameters := parameters;
 
   FModules.Add(result);
-
-  SaveToProjectFile;
 end;
 
 //------------------------------------------------------------------------------
